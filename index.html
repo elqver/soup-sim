@@ -52,10 +52,12 @@
   .stack { display: grid; gap: 16px; }
   .presets { display: flex; flex-wrap: wrap; gap: 8px; }
   .row { display: grid; gap: 6px; align-items: center; margin-bottom: 6px; }
-  .row.molecule { grid-template-columns: 14px minmax(0, 1fr) 68px minmax(60px, 1fr) 28px; }
+  .row.molecule { grid-template-columns: 18px minmax(0, 1fr) 68px minmax(60px, 1fr) 28px; }
   .row.gene { grid-template-columns: repeat(3, minmax(0, 1fr)) 28px; }
   .row.head { color: var(--text-2); font-size: 12px; margin-bottom: 4px; }
-  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+  .key { width: 18px; height: 0; border-top: 3px solid; display: inline-block; flex: none; }
+  .key.dashed { border-top-style: dashed; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   input, select, button {
     font: inherit; color: var(--text); background: var(--surface);
     border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px; min-width: 0; width: 100%;
@@ -69,8 +71,10 @@
   .params { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   label.field { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
   .hint { color: var(--text-2); font-size: 12px; margin: 8px 0 0; }
-  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 8px; font-size: 13px; }
-  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-bottom: 8px; font-size: 13px; }
+  .legend .item { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-color: transparent; }
+  .legend .item[aria-pressed=false] { opacity: .45; text-decoration: line-through; }
+  .legend .all { margin-left: 6px; padding: 3px 8px; font-size: 12px; color: var(--text-2); }
   .chart { position: relative; }
   svg { display: block; width: 100%; height: 380px; overflow: visible; }
   .axis text, .end-label { fill: var(--text-2); font-size: 11px; }
@@ -115,14 +119,20 @@
         <h2>Молекулы</h2>
         <div class="row molecule head"><span></span><span>Имя</span><span>Старт</span><span></span><span></span></div>
         <div id="molecules"></div>
-        <button id="add-molecule">+ молекула</button>
+        <div class="actions">
+          <button id="add-molecule">+ молекула</button>
+          <button id="random-start">Случайный старт</button>
+        </div>
       </section>
 
       <section class="panel">
         <h2>Геном</h2>
         <div class="row gene head"><span>Таргет</span><span>Промоутер</span><span>Ингибитор</span><span></span></div>
         <div id="genes"></div>
-        <button id="add-gene">+ ген</button>
+        <div class="actions">
+          <button id="add-gene">+ ген</button>
+          <button id="add-random-gene">+ случайный ген</button>
+        </div>
       </section>
 
       <section class="panel">
@@ -152,7 +162,9 @@
 <script src="engine.js"></script>
 <script>
 (function () {
-  const MAX_MOLECULES = 8;
+  // Eight colours; molecules 9-16 reuse them with a dashed line.
+  const COLORS = 8;
+  const MAX_MOLECULES = 16;
   const NONE = "";
 
   const PRESETS = {
@@ -176,7 +188,38 @@
       genes: [["A", "A", null], ["B", null, "A"]],
       steps: 200, dt: 0.05,
     },
+    // Each molecule is pushed up by its left neighbour and down by its right one.
+    "Кольцо из 10": network(
+      [100, 50, 50, 50, 50, 50, 50, 50, 50, 50],
+      [[0, 9, 1], [1, 0, 2], [2, 1, 3], [3, 2, 4], [4, 3, 5], [5, 4, 6], [6, 5, 7], [7, 6, 8], [8, 7, 9], [9, 8, 0]],
+      3000),
+    // The three below were found by a random search for networks that never settle.
+    "Сложная сеть": network(
+      [40, 33, 70, 31, 100, 28, 86, 35, 42, 38],
+      [[4, 9, 2], [5, 6, null], [7, null, 7], [7, 4, null], [2, 4, 1], [1, 7, 1], [7, 4, 5], [0, 8, 7],
+       [5, null, 6], [6, 4, 2], [8, 1, 0], [5, 1, 0]],
+      4000),
+    "Неровный ритм": network(
+      [76, 74, 87, 67, 9, 69, 100, 52, 79, 81],
+      [[6, null, 8], [6, 9, null], [1, null, 4], [8, null, 3], [9, 2, 9], [0, 8, 0], [4, 7, 6], [9, 8, null],
+       [8, 7, 8], [8, 8, 4], [6, 8, 5], [7, 2, 3], [9, 4, 6], [0, 7, 4], [2, 5, 6], [1, null, 9]],
+      4000),
+    "Все десять в цикле": network(
+      [98, 96, 63, 14, 98, 76, 15, 26, 86, 59],
+      [[0, 5, null], [8, 1, 9], [8, 6, 0], [3, 5, 8], [1, 7, 1], [9, 6, 9], [7, 9, 1], [2, null, 1], [4, 9, 1],
+       [7, 8, 7], [6, 2, 6], [0, 5, 3], [8, 7, null], [2, 6, 2], [1, 4, 0], [2, 0, 5], [5, 7, 5]],
+      4000),
   };
+
+  // A preset given as start values and [target, promoter, inhibitor] indexes.
+  function network(start, genes, steps) {
+    const name = (i) => (i === null ? null : "ABCDEFGHIJKLMNOP"[i]);
+    return {
+      molecules: start.map((value, i) => [name(i), value]),
+      genes: genes.map((gene) => gene.map(name)),
+      steps, dt: 0.05,
+    };
+  }
 
   let nextId = 1;
   let state;
@@ -185,7 +228,11 @@
   const $ = (id) => document.getElementById(id);
   const escapeHtml = (text) =>
     String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const color = (molecule) => `var(--s${molecule.slot + 1})`;
+  const color = (molecule) => `var(--s${(molecule.slot % COLORS) + 1})`;
+  const dashed = (molecule) => molecule.slot >= COLORS;
+  const key = (molecule) =>
+    `<i class="key${dashed(molecule) ? " dashed" : ""}" style="border-color:${color(molecule)}"></i>`;
+  const visible = () => state.molecules.map((m, i) => ({ m, i })).filter(({ m }) => !m.hidden);
   const format = (value) => value.toFixed(1);
 
   function freeSlot() {
@@ -236,7 +283,7 @@
   function renderMolecules() {
     $("molecules").innerHTML = state.molecules.map((m) => `
       <div class="row molecule" data-id="${m.id}">
-        <span class="swatch" style="background:${color(m)}"></span>
+        ${key(m)}
         <input data-field="name" value="${escapeHtml(m.name)}" maxlength="12" aria-label="Имя молекулы">
         <input data-field="value" type="number" min="0" max="100" step="1" value="${m.value}" aria-label="Стартовое значение">
         <input data-field="slider" type="range" min="0" max="100" step="1" value="${m.value}" aria-label="Стартовое значение">
@@ -260,6 +307,7 @@
         <button class="remove" data-action="remove" title="Удалить" aria-label="Удалить ген">×</button>
       </div>`).join("");
     $("add-gene").disabled = state.molecules.length === 0;
+    $("add-random-gene").disabled = state.molecules.length === 0;
   }
 
   function run() {
@@ -312,17 +360,19 @@
 
     // At most about two points per pixel are drawn.
     const stride = Math.max(1, Math.ceil(steps / (plotWidth * 2)));
-    state.molecules.forEach((m, i) => {
+    const shown = visible();
+    for (const { m, i } of shown) {
       const points = [];
       for (let t = 0; t <= steps; t += stride) points.push(`${x(t).toFixed(1)},${y(series[i][t]).toFixed(1)}`);
       if (steps % stride) points.push(`${x(steps).toFixed(1)},${y(series[i][steps]).toFixed(1)}`);
-      html += `<polyline class="series" stroke="${color(m)}" points="${points.join(" ")}"/>`;
-    });
+      const dash = dashed(m) ? ' stroke-dasharray="7 5"' : "";
+      html += `<polyline class="series" stroke="${color(m)}"${dash} points="${points.join(" ")}"/>`;
+    }
 
     // Name each line at its right end when there are few enough to read.
-    if (state.molecules.length <= 4) {
-      const labels = state.molecules
-        .map((m, i) => ({ name: m.name, y: y(series[i][steps]) }))
+    if (shown.length <= 4) {
+      const labels = shown
+        .map(({ m, i }) => ({ name: m.name, y: y(series[i][steps]) }))
         .sort((a, b) => a.y - b.y);
       for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 14);
       const overflow = labels.length ? labels[labels.length - 1].y - (MARGIN.top + plotHeight) : 0;
@@ -335,13 +385,19 @@
     html += '<g id="hover"></g>';
     svg.innerHTML = html;
 
-    $("legend").innerHTML = state.molecules
-      .map((m) => `<span><i class="swatch" style="background:${color(m)}"></i>${escapeHtml(m.name)}</span>`).join("");
+    // The legend doubles as the show/hide switch for each line.
+    $("legend").innerHTML = state.molecules.map((m) =>
+      `<button class="item" data-id="${m.id}" aria-pressed="${!m.hidden}" title="Показать или скрыть">` +
+      `${key(m)}${escapeHtml(m.name)}</button>`).join("") +
+      (state.molecules.length > 1
+        ? '<button class="all" data-all="show">все</button><button class="all" data-all="hide">ничего</button>'
+        : "");
     $("tooltip").style.display = "none";
   }
 
   function hover(event) {
-    if (!geometry || !state.molecules.length) return;
+    const shown = visible();
+    if (!geometry || !shown.length) return;
     const svg = $("plot");
     const bounds = svg.getBoundingClientRect();
     const fraction = (event.clientX - bounds.left - MARGIN.left) / geometry.plotWidth;
@@ -349,14 +405,14 @@
     const px = geometry.x(t);
 
     let marks = `<line class="crosshair" x1="${px}" x2="${px}" y1="${MARGIN.top}" y2="${geometry.y(0)}"/>`;
-    state.molecules.forEach((m, i) => {
+    for (const { m, i } of shown) {
       marks += `<circle class="dot" cx="${px}" cy="${geometry.y(series[i][t])}" r="4.5" fill="${color(m)}"/>`;
-    });
+    }
     svg.querySelector("#hover").innerHTML = marks;
 
     const tooltip = $("tooltip");
-    tooltip.innerHTML = `<div class="title">Шаг ${t}</div>` + state.molecules.map((m, i) =>
-      `<div class="line"><i class="swatch" style="background:${color(m)}"></i>${escapeHtml(m.name)}` +
+    tooltip.innerHTML = `<div class="title">Шаг ${t}</div>` + shown.map(({ m, i }) =>
+      `<div class="line">${key(m)}${escapeHtml(m.name)}` +
       `<span class="value">${format(series[i][t])}</span></div>`).join("");
     tooltip.style.display = "block";
     const left = px + 14 + tooltip.offsetWidth > geometry.width ? px - 14 - tooltip.offsetWidth : px + 14;
@@ -432,6 +488,25 @@
     renderAll();
   });
 
+  $("random-start").addEventListener("click", () => {
+    for (const molecule of state.molecules) molecule.value = Math.floor(Math.random() * 101);
+    renderMolecules();
+    run();
+  });
+
+  $("legend").addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button.dataset.all) {
+      for (const molecule of state.molecules) molecule.hidden = button.dataset.all === "hide";
+    } else {
+      const molecule = state.molecules.find((m) => m.id === Number(button.dataset.id));
+      molecule.hidden = !molecule.hidden;
+    }
+    save();
+    draw();
+  });
+
   $("genes").addEventListener("change", (event) => {
     const gene = state.genes[Number(event.target.closest(".row").dataset.index)];
     gene[event.target.dataset.field] = event.target.value === NONE ? NONE : Number(event.target.value);
@@ -447,6 +522,24 @@
 
   $("add-gene").addEventListener("click", () => {
     state.genes.push({ target: state.molecules[0].id, promoter: NONE, inhibitor: NONE });
+    renderGenes();
+    run();
+  });
+
+  // A random target, and a promoter and an inhibitor that differ, each
+  // sometimes left empty.
+  $("add-random-gene").addEventListener("click", () => {
+    const ids = state.molecules.map((m) => m.id);
+    const pick = () => ids[Math.floor(Math.random() * ids.length)];
+    const maybe = () => (Math.random() < 0.15 ? NONE : pick());
+    let promoter = maybe();
+    let inhibitor = maybe();
+    while (promoter === inhibitor) {
+      if (ids.length < 2) { inhibitor = NONE; promoter = pick(); break; }
+      promoter = pick();
+      inhibitor = maybe();
+    }
+    state.genes.push({ target: pick(), promoter, inhibitor });
     renderGenes();
     run();
   });
