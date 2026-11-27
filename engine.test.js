@@ -53,3 +53,75 @@ test("two molecules around a constant midpoint oscillate", () => {
   const crossings = a.filter((v, i) => i > 0 && (a[i - 1] - 50) * (v - 50) < 0).length;
   assert.ok(crossings >= 4, `only ${crossings} crossings of the midpoint`);
 });
+
+// ---- the other models ----
+
+const { MODELS, DEFAULT_PARAMS } = require("./engine.js");
+const gene = (target, promoter, inhibitor, substrate = null) => ({ target, promoter, inhibitor, substrate });
+
+test("hill: an unregulated gene drives its target towards 100, others do not decay", () => {
+  const next = MODELS.hill.step([0, 40], [gene(0, null, null)], 0.1, DEFAULT_PARAMS);
+  close(next[0], 10);
+  assert.equal(next[1], 40);
+});
+
+test("hill: a promoter at the threshold K gives half production", () => {
+  const next = MODELS.hill.step([0, 20], [gene(0, 1, null)], 0.1, { n: 4, K: 20 });
+  close(next[0], 5);
+});
+
+test("hill: an inhibitor at the threshold K halves production, and the target decays", () => {
+  const next = MODELS.hill.step([80, 20], [gene(0, null, 1)], 0.1, { n: 4, K: 20 });
+  close(next[0], 80 + (50 - 80) * 0.1);
+});
+
+test("hill: two repressors settle with one on and one off", () => {
+  const genes = [gene(0, null, 1), gene(1, null, 0)];
+  const [a, b] = simulate([60, 40], genes, 300, 0.05, "hill");
+  assert.ok(a[300] > 99 && b[300] < 1, `ended at ${a[300]}, ${b[300]}`);
+});
+
+test("hill: three repressors in a ring oscillate at n = 4 and settle at n = 2", () => {
+  const genes = [gene(0, null, 2), gene(1, null, 0), gene(2, null, 1)];
+  const range = (values) => Math.max(...values) - Math.min(...values);
+  const steep = simulate([80, 20, 10], genes, 1200, 0.05, "hill", { n: 4 })[0].slice(600);
+  const shallow = simulate([80, 20, 10], genes, 1200, 0.05, "hill", { n: 2 })[0].slice(600);
+  assert.ok(range(steep) > 50, `n = 4 range ${range(steep)}`);
+  assert.ok(range(shallow) < 1, `n = 2 range ${range(shallow)}`);
+});
+
+test("growth: the change is proportional to the target itself", () => {
+  const next = MODELS.growth.step([20, 50, 30], [gene(0, 1, 2)], 0.5);
+  close(next[0], 20 + 20 * (50 - 30) / 100 * 0.5);
+  assert.deepEqual(MODELS.growth.step([0, 50, 30], [gene(0, 1, 2)], 0.5), [0, 50, 30]);
+});
+
+test("conversion: substrate becomes target at promoter * substrate / (1 + inhibitor)", () => {
+  // amounts: target, promoter, inhibitor, substrate
+  const next = MODELS.conversion.step([0, 50, 100, 80], [gene(0, 1, 2, 3)], 0.1);
+  const moved = 0.5 * 80 / 2 * 0.1;
+  close(next[0], moved);
+  close(next[3], 80 - moved);
+  assert.deepEqual([next[1], next[2]], [50, 100]);
+});
+
+test("conversion: a gene without a promoter or a substrate does nothing", () => {
+  assert.deepEqual(MODELS.conversion.step([0, 50, 80], [gene(0, null, null, 2)], 0.1), [0, 50, 80]);
+  assert.deepEqual(MODELS.conversion.step([0, 50, 80], [gene(0, 1, null, null)], 0.1), [0, 50, 80]);
+});
+
+test("conversion: genes that want more than exists share it, and the total is conserved", () => {
+  const genes = [gene(0, 2, null, 3), gene(1, 2, null, 3)];
+  const next = MODELS.conversion.step([0, 0, 100, 10], genes, 5);
+  close(next[0], 5);
+  close(next[1], 5);
+  close(next[3], 0);
+});
+
+test("conversion: amounts may pass 100 and the total stays put", () => {
+  const genes = [gene(1, 1, null, 0), gene(2, 2, null, 1), gene(0, 0, null, 2)];
+  const series = simulate([100, 90, 80], genes, 2000, 0.05, "conversion");
+  const total = series.reduce((sum, values) => sum + values[2000], 0);
+  assert.ok(Math.abs(total - 270) < 1e-6, `total ${total}`);
+  assert.ok(Math.max(...series.flat()) > 100);
+});

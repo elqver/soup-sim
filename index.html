@@ -54,6 +54,10 @@
   .row { display: grid; gap: 6px; align-items: center; margin-bottom: 6px; }
   .row.molecule { grid-template-columns: 18px minmax(0, 1fr) 68px minmax(60px, 1fr) 28px; }
   .row.gene { grid-template-columns: repeat(3, minmax(0, 1fr)) 28px; }
+  .row.gene.wide { grid-template-columns: repeat(4, minmax(0, 1fr)) 28px; }
+  [hidden] { display: none !important; }
+  #model { margin-bottom: 8px; }
+  #model-params { margin-bottom: 8px; }
   .row.head { color: var(--text-2); font-size: 12px; margin-bottom: 4px; }
   .key { width: 18px; height: 0; border-top: 3px solid; display: inline-block; flex: none; }
   .key.dashed { border-top-style: dashed; }
@@ -103,15 +107,25 @@
 <main>
   <h1>Суп: простой симулятор</h1>
   <p class="lead">
-    Каждый ген меняет свой таргет на каждом шаге:
-    <code class="formula">таргет′ = таргет + промоутер · dt − ингибитор · dt</code>.
-    Все гены читают один и тот же снимок супа, значения держатся в пределах 0–100.
+    Каждый ген на каждом шаге меняет суп по правилу выбранной модели.
+    Все гены читают один и тот же снимок супа.
   </p>
 
   <div class="layout">
     <div class="stack">
       <section class="panel">
-        <h2>Примеры</h2>
+        <h2>Модель</h2>
+        <select id="model" aria-label="Модель"></select>
+        <div class="params" id="model-params">
+          <label class="field">n — крутизна <input id="param-n" type="number" min="1" max="10" step="1"></label>
+          <label class="field">K — порог <input id="param-K" type="number" min="1" max="100" step="1"></label>
+        </div>
+        <div><code class="formula" id="formula"></code></div>
+        <p class="hint" id="model-note"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Примеры для этой модели</h2>
         <div class="presets" id="presets"></div>
       </section>
 
@@ -127,7 +141,7 @@
 
       <section class="panel">
         <h2>Геном</h2>
-        <div class="row gene head"><span>Таргет</span><span>Промоутер</span><span>Ингибитор</span><span></span></div>
+        <div class="row gene head" id="gene-head"></div>
         <div id="genes"></div>
         <div class="actions">
           <button id="add-gene">+ ген</button>
@@ -166,6 +180,32 @@
   const COLORS = 8;
   const MAX_MOLECULES = 16;
   const NONE = "";
+
+  const MODEL_INFO = {
+    linear: {
+      name: "Линейная",
+      formula: "таргет′ = таргет + (промоутер − ингибитор) · dt",
+      note: "Значения держатся в пределах 0–100.",
+    },
+    hill: {
+      name: "Регуляция с насыщением и распадом (Хилл)",
+      formula: "таргет′ = таргет + (100 · вкл(промоутер) · выкл(ингибитор) − таргет) · dt",
+      note: "вкл(x) = xⁿ / (Kⁿ + xⁿ), выкл(x) = Kⁿ / (Kⁿ + xⁿ). Пустой промоутер считается полностью " +
+        "включённым. Молекулы, на которые не нацелен ни один ген, не распадаются.",
+    },
+    growth: {
+      name: "Размножение (Лотка — Вольтерра)",
+      formula: "таргет′ = таргет + таргет · (промоутер − ингибитор) / 100 · dt",
+      note: "Таргет растёт пропорционально самому себе, поэтому с нуля не стартует. " +
+        "Значения держатся в пределах 0–100.",
+    },
+    conversion: {
+      name: "Конверсия с сохранением массы (правило из Rust)",
+      formula: "субстрат → таргет: (промоутер / 100) · субстрат / (1 + ингибитор / 100) · dt",
+      note: "Ген превращает субстрат в таргет. Без промоутера или без субстрата он ничего не делает. " +
+        "Сумма всех молекул сохраняется, верхней границы нет.",
+    },
+  };
 
   const PRESETS = {
     "Осциллятор": {
@@ -209,6 +249,61 @@
       [[0, 5, null], [8, 1, 9], [8, 6, 0], [3, 5, 8], [1, 7, 1], [9, 6, 9], [7, 9, 1], [2, null, 1], [4, 9, 1],
        [7, 8, 7], [6, 2, 6], [0, 5, 3], [8, 7, null], [2, 6, 2], [1, 4, 0], [2, 0, 5], [5, 7, 5]],
       1500),
+
+    "Тумблер": {
+      model: "hill",
+      molecules: [["A", 60], ["B", 40]],
+      genes: [["A", null, "B"], ["B", null, "A"]],
+      steps: 300, dt: 0.05,
+    },
+    "Репрессилятор": {
+      model: "hill",
+      molecules: [["A", 80], ["B", 20], ["C", 10]],
+      genes: [["A", null, "C"], ["B", null, "A"], ["C", null, "B"]],
+      steps: 1200, dt: 0.05,
+    },
+    "Кольцо из 5 репрессоров": {
+      model: "hill",
+      molecules: [["A", 90], ["B", 10], ["C", 50], ["D", 30], ["E", 70]],
+      genes: [["A", null, "E"], ["B", null, "A"], ["C", null, "B"], ["D", null, "C"], ["E", null, "D"]],
+      steps: 1500, dt: 0.05,
+    },
+    // S switches X on at once and, through a three-step delay, off again.
+    "Импульс": {
+      model: "hill",
+      molecules: [["S", 100], ["B", 0], ["C", 0], ["D", 0], ["X", 0]],
+      genes: [["B", "S", null], ["C", "B", null], ["D", "C", null], ["X", "S", "D"]],
+      steps: 400, dt: 0.05,
+    },
+
+    "Хищник и жертва": {
+      model: "growth",
+      molecules: [["Жертва", 40], ["Хищник", 40], ["Еда", 50], ["Смертность", 30]],
+      genes: [["Жертва", "Еда", "Хищник"], ["Хищник", "Жертва", "Смертность"]],
+      steps: 3000, dt: 0.02,
+    },
+    "Камень-ножницы-бумага": {
+      model: "growth",
+      molecules: [["A", 50], ["B", 30], ["C", 20]],
+      genes: [["A", "B", "C"], ["B", "C", "A"], ["C", "A", "B"]],
+      steps: 1500, dt: 0.05,
+    },
+
+    // The demo of the Rust engine: the pathway eats about half the food and
+    // then destroys its own key.
+    "Самовыключение": {
+      model: "conversion",
+      molecules: [["Еда", 100], ["Ключ", 10], ["A", 0], ["B", 0], ["Выкл", 0]],
+      genes: [["A", "Ключ", null, "Еда"], ["B", "A", null, "A"], ["Выкл", "B", null, "Ключ"]],
+      steps: 600, dt: 0.5,
+    },
+    // Each molecule turns the previous one into itself.
+    "Круговорот": {
+      model: "conversion",
+      molecules: [["A", 50], ["B", 30], ["C", 20]],
+      genes: [["B", "B", null, "A"], ["C", "C", null, "B"], ["A", "A", null, "C"]],
+      steps: 3000, dt: 0.02,
+    },
   };
 
   // A preset given as start values and [target, promoter, inhibitor] indexes.
@@ -243,11 +338,13 @@
 
   function fromPreset(preset) {
     const molecules = preset.molecules.map(([name, value], slot) => ({ id: nextId++, name, value, slot }));
-    const idOf = (name) => (name === null ? NONE : molecules.find((m) => m.name === name).id);
+    const idOf = (name) => (name === null || name === undefined ? NONE : molecules.find((m) => m.name === name).id);
     return {
+      model: preset.model || "linear",
+      params: Object.assign({}, SoupEngine.DEFAULT_PARAMS),
       molecules,
-      genes: preset.genes.map(([target, promoter, inhibitor]) => ({
-        target: idOf(target), promoter: idOf(promoter), inhibitor: idOf(inhibitor),
+      genes: preset.genes.map(([target, promoter, inhibitor, substrate]) => ({
+        target: idOf(target), promoter: idOf(promoter), inhibitor: idOf(inhibitor), substrate: idOf(substrate),
       })),
       steps: preset.steps,
       dt: preset.dt,
@@ -268,6 +365,10 @@
       const loaded = JSON.parse(new TextDecoder().decode(Uint8Array.from(text, (c) => c.charCodeAt(0))));
       if (!Array.isArray(loaded.molecules) || !Array.isArray(loaded.genes)) return null;
       loaded.molecules = loaded.molecules.slice(0, MAX_MOLECULES);
+      // Addresses saved before models existed have neither of these.
+      if (!MODEL_INFO[loaded.model]) loaded.model = "linear";
+      loaded.params = Object.assign({}, SoupEngine.DEFAULT_PARAMS, loaded.params);
+      for (const gene of loaded.genes) if (gene.substrate === undefined) gene.substrate = NONE;
       nextId = Math.max(0, ...loaded.molecules.map((m) => m.id)) + 1;
       return loaded;
     } catch (e) {
@@ -275,8 +376,17 @@
     }
   }
 
-  function renderPresets() {
+  function renderModel() {
+    const info = MODEL_INFO[state.model];
+    $("model").innerHTML = Object.keys(MODEL_INFO).map((id) =>
+      `<option value="${id}"${id === state.model ? " selected" : ""}>${escapeHtml(MODEL_INFO[id].name)}</option>`).join("");
+    $("formula").textContent = info.formula;
+    $("model-note").textContent = info.note;
+    $("model-params").hidden = state.model !== "hill";
+    $("param-n").value = state.params.n;
+    $("param-K").value = state.params.K;
     $("presets").innerHTML = Object.keys(PRESETS)
+      .filter((name) => (PRESETS[name].model || "linear") === state.model)
       .map((name) => `<button data-preset="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("");
   }
 
@@ -299,11 +409,17 @@
   }
 
   function renderGenes() {
+    // Only the conversion model has a substrate.
+    const wide = state.model === "conversion";
+    $("gene-head").className = `row gene head${wide ? " wide" : ""}`;
+    $("gene-head").innerHTML = "<span>Таргет</span><span>Промоутер</span><span>Ингибитор</span>" +
+      (wide ? "<span>Субстрат</span>" : "") + "<span></span>";
     $("genes").innerHTML = state.genes.map((gene, i) => `
-      <div class="row gene" data-index="${i}">
+      <div class="row gene${wide ? " wide" : ""}" data-index="${i}">
         <select data-field="target" aria-label="Таргет">${options(gene.target, false)}</select>
         <select data-field="promoter" aria-label="Промоутер">${options(gene.promoter, true)}</select>
         <select data-field="inhibitor" aria-label="Ингибитор">${options(gene.inhibitor, true)}</select>
+        ${wide ? `<select data-field="substrate" aria-label="Субстрат">${options(gene.substrate, true)}</select>` : ""}
         <button class="remove" data-action="remove" title="Удалить" aria-label="Удалить ген">×</button>
       </div>`).join("");
     $("add-gene").disabled = state.molecules.length === 0;
@@ -314,11 +430,16 @@
     const index = new Map(state.molecules.map((m, i) => [m.id, i]));
     const at = (id) => (index.has(id) ? index.get(id) : null);
     const genes = state.genes
-      .map((gene) => ({ target: at(gene.target), promoter: at(gene.promoter), inhibitor: at(gene.inhibitor) }))
+      .map((gene) => ({
+        target: at(gene.target), promoter: at(gene.promoter),
+        inhibitor: at(gene.inhibitor), substrate: at(gene.substrate),
+      }))
       .filter((gene) => gene.target !== null);
     const steps = Math.min(100000, Math.max(1, Math.round(Number(state.steps)) || 1));
     const dt = Number(state.dt) || 0;
-    series = SoupEngine.simulate(state.molecules.map((m) => Number(m.value) || 0), genes, steps, dt);
+    const params = { n: Number(state.params.n) || 1, K: Number(state.params.K) || 1 };
+    series = SoupEngine.simulate(
+      state.molecules.map((m) => Number(m.value) || 0), genes, steps, dt, state.model, params);
     save();
     draw();
     renderTable();
@@ -338,6 +459,16 @@
     return ticks;
   }
 
+  // The top of the value axis: 100 for capped models, otherwise the smallest
+  // round number that fits every visible line.
+  function axisTop() {
+    if (SoupEngine.MODELS[state.model].capped) return 100;
+    let max = 100;
+    for (const { i } of visible()) for (const value of series[i]) if (value > max) max = value;
+    const power = Math.pow(10, Math.floor(Math.log10(max)));
+    return [1, 2, 2.5, 4, 5, 10].find((unit) => unit * power >= max) * power;
+  }
+
   function draw() {
     const svg = $("plot");
     const width = svg.clientWidth, height = svg.clientHeight;
@@ -345,11 +476,12 @@
     const plotWidth = Math.max(10, width - MARGIN.left - MARGIN.right);
     const plotHeight = height - MARGIN.top - MARGIN.bottom;
     const x = (t) => MARGIN.left + (t / steps) * plotWidth;
-    const y = (v) => MARGIN.top + (1 - v / 100) * plotHeight;
+    const top = axisTop();
+    const y = (v) => MARGIN.top + (1 - v / top) * plotHeight;
     geometry = { x, y, steps, plotWidth, width };
 
     let html = '<g class="axis">';
-    for (const v of [0, 25, 50, 75, 100]) {
+    for (const v of [0, top / 4, top / 2, (3 * top) / 4, top]) {
       html += `<line class="gridline" x1="${MARGIN.left}" x2="${MARGIN.left + plotWidth}" y1="${y(v)}" y2="${y(v)}"/>`;
       html += `<text x="${MARGIN.left - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
     }
@@ -440,6 +572,7 @@
   // ---- events ----
 
   function renderAll() {
+    renderModel();
     renderMolecules();
     renderGenes();
     $("steps").value = state.steps;
@@ -452,6 +585,16 @@
     if (!name) return;
     state = fromPreset(PRESETS[name]);
     renderAll();
+  });
+
+  $("model").addEventListener("change", (event) => {
+    state.model = event.target.value;
+    renderAll();
+  });
+
+  $("model-params").addEventListener("input", (event) => {
+    state.params[event.target.id === "param-n" ? "n" : "K"] = event.target.value;
+    run();
   });
 
   $("molecules").addEventListener("input", (event) => {
@@ -477,6 +620,7 @@
     for (const gene of state.genes) {
       if (gene.promoter === id) gene.promoter = NONE;
       if (gene.inhibitor === id) gene.inhibitor = NONE;
+      if (gene.substrate === id) gene.substrate = NONE;
     }
     renderAll();
   });
@@ -521,7 +665,7 @@
   });
 
   $("add-gene").addEventListener("click", () => {
-    state.genes.push({ target: state.molecules[0].id, promoter: NONE, inhibitor: NONE });
+    state.genes.push({ target: state.molecules[0].id, promoter: NONE, inhibitor: NONE, substrate: NONE });
     renderGenes();
     run();
   });
@@ -539,7 +683,10 @@
       promoter = pick();
       inhibitor = maybe();
     }
-    state.genes.push({ target: pick(), promoter, inhibitor });
+    const target = pick();
+    const others = ids.filter((id) => id !== target);
+    const substrate = others.length ? others[Math.floor(Math.random() * others.length)] : NONE;
+    state.genes.push({ target, promoter, inhibitor, substrate });
     renderGenes();
     run();
   });
@@ -551,7 +698,6 @@
   $("plot").addEventListener("pointerleave", unhover);
   new ResizeObserver(() => { if (state) draw(); }).observe($("chart"));
 
-  renderPresets();
   state = load() || fromPreset(PRESETS["Осциллятор"]);
   renderAll();
 })();
