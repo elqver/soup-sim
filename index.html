@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Суп: простой симулятор</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f6f6f4;
+    --surface: #ffffff;
+    --border: #dddddd;
+    --grid: #ebebeb;
+    --text: #191919;
+    --text-2: #666666;
+    --accent: #257de0;
+    --s1: #257de0; --s2: #f47230; --s3: #00b894; --s4: #f2a600;
+    --s5: #ee7fac; --s6: #008a17; --s7: #6a4ce2; --s8: #ec4647;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #111111;
+      --surface: #191919;
+      --border: #333333;
+      --grid: #2a2a2a;
+      --text: #efefef;
+      --text-2: #9c9c9c;
+      --accent: #338ced;
+      --s1: #338ced; --s2: #e76624; --s3: #00a888; --s4: #d28e05;
+      --s5: #e24d8b; --s6: #0aac23; --s7: #9887ef; --s8: #eb6263;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 48px;
+    background: var(--page); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .lead { color: var(--text-2); margin: 0 0 20px; max-width: 70ch; }
+  code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .formula {
+    display: inline-block; padding: 2px 8px; border-radius: 6px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  }
+  .layout { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .stack { display: grid; gap: 16px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+  .row { display: grid; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .row.molecule { grid-template-columns: 14px minmax(0, 1fr) 68px minmax(60px, 1fr) 28px; }
+  .row.gene { grid-template-columns: repeat(3, minmax(0, 1fr)) 28px; }
+  .row.head { color: var(--text-2); font-size: 12px; margin-bottom: 4px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+  input, select, button {
+    font: inherit; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px; min-width: 0; width: 100%;
+  }
+  input[type=range] { padding: 0; border: 0; accent-color: var(--accent); }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { cursor: pointer; width: auto; }
+  button:hover:not(:disabled) { border-color: var(--text-2); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.remove { width: 28px; padding: 5px 0; color: var(--text-2); }
+  .params { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  label.field { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
+  .hint { color: var(--text-2); font-size: 12px; margin: 8px 0 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 8px; font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .chart { position: relative; }
+  svg { display: block; width: 100%; height: 380px; overflow: visible; }
+  .axis text, .end-label { fill: var(--text-2); font-size: 11px; }
+  .end-label { fill: var(--text); font-size: 12px; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .crosshair { stroke: var(--text-2); stroke-width: 1; }
+  .dot { stroke: var(--surface); stroke-width: 2; }
+  .tooltip {
+    position: absolute; top: 8px; pointer-events: none; display: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; min-width: 130px; box-shadow: 0 2px 10px rgb(0 0 0 / .12);
+  }
+  .tooltip .title { color: var(--text-2); margin-bottom: 4px; }
+  .tooltip .line { display: flex; align-items: center; gap: 6px; }
+  .tooltip .value { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--text-2); font-size: 13px; }
+  .table-wrap { overflow-x: auto; margin-top: 8px; }
+  table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 3px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { color: var(--text-2); font-weight: 500; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Суп: простой симулятор</h1>
+  <p class="lead">
+    Каждый ген меняет свой таргет на каждом шаге:
+    <code class="formula">таргет′ = таргет + промоутер · dt − ингибитор · dt</code>.
+    Все гены читают один и тот же снимок супа, значения держатся в пределах 0–100.
+  </p>
+
+  <div class="layout">
+    <div class="stack">
+      <section class="panel">
+        <h2>Примеры</h2>
+        <div class="presets" id="presets"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Молекулы</h2>
+        <div class="row molecule head"><span></span><span>Имя</span><span>Старт</span><span></span><span></span></div>
+        <div id="molecules"></div>
+        <button id="add-molecule">+ молекула</button>
+      </section>
+
+      <section class="panel">
+        <h2>Геном</h2>
+        <div class="row gene head"><span>Таргет</span><span>Промоутер</span><span>Ингибитор</span><span></span></div>
+        <div id="genes"></div>
+        <button id="add-gene">+ ген</button>
+      </section>
+
+      <section class="panel">
+        <h2>Симуляция</h2>
+        <div class="params">
+          <label class="field">Шагов <input id="steps" type="number" min="1" max="100000" step="1"></label>
+          <label class="field">dt <input id="dt" type="number" min="0" step="0.01"></label>
+        </div>
+        <p class="hint">Адрес страницы хранит всю настройку — его можно сохранить или отправить.</p>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="legend" id="legend"></div>
+      <div class="chart" id="chart">
+        <svg id="plot" role="img" aria-label="Количество каждой молекулы по шагам"></svg>
+        <div class="tooltip" id="tooltip"></div>
+      </div>
+      <details>
+        <summary>Таблица значений</summary>
+        <div class="table-wrap" id="table"></div>
+      </details>
+    </section>
+  </div>
+</main>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  const MAX_MOLECULES = 8;
+  const NONE = "";
+
+  const PRESETS = {
+    "Осциллятор": {
+      molecules: [["A", 80], ["B", 50], ["C", 50]],
+      genes: [["A", "C", "B"], ["B", "A", "C"]],
+      steps: 400, dt: 0.05,
+    },
+    "Каскад": {
+      molecules: [["A", 20], ["B", 0], ["C", 0]],
+      genes: [["B", "A", null], ["C", "B", null]],
+      steps: 200, dt: 0.05,
+    },
+    "Кто кого": {
+      molecules: [["A", 60], ["B", 40]],
+      genes: [["A", null, "B"], ["B", null, "A"]],
+      steps: 100, dt: 0.05,
+    },
+    "Самоусиление": {
+      molecules: [["A", 1], ["B", 100]],
+      genes: [["A", "A", null], ["B", null, "A"]],
+      steps: 200, dt: 0.05,
+    },
+  };
+
+  let nextId = 1;
+  let state;
+  let series = [];
+
+  const $ = (id) => document.getElementById(id);
+  const escapeHtml = (text) =>
+    String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const color = (molecule) => `var(--s${molecule.slot + 1})`;
+  const format = (value) => value.toFixed(1);
+
+  function freeSlot() {
+    const used = new Set(state.molecules.map((m) => m.slot));
+    for (let slot = 0; slot < MAX_MOLECULES; slot++) if (!used.has(slot)) return slot;
+    return 0;
+  }
+
+  function fromPreset(preset) {
+    const molecules = preset.molecules.map(([name, value], slot) => ({ id: nextId++, name, value, slot }));
+    const idOf = (name) => (name === null ? NONE : molecules.find((m) => m.name === name).id);
+    return {
+      molecules,
+      genes: preset.genes.map(([target, promoter, inhibitor]) => ({
+        target: idOf(target), promoter: idOf(promoter), inhibitor: idOf(inhibitor),
+      })),
+      steps: preset.steps,
+      dt: preset.dt,
+    };
+  }
+
+  // The address keeps the whole setup, as base64 of JSON.
+  function save() {
+    try {
+      const bytes = new TextEncoder().encode(JSON.stringify(state));
+      history.replaceState(null, "", "#" + btoa(String.fromCharCode(...bytes)));
+    } catch (e) { /* the page still works without a saved address */ }
+  }
+
+  function load() {
+    try {
+      const text = atob(location.hash.slice(1));
+      const loaded = JSON.parse(new TextDecoder().decode(Uint8Array.from(text, (c) => c.charCodeAt(0))));
+      if (!Array.isArray(loaded.molecules) || !Array.isArray(loaded.genes)) return null;
+      loaded.molecules = loaded.molecules.slice(0, MAX_MOLECULES);
+      nextId = Math.max(0, ...loaded.molecules.map((m) => m.id)) + 1;
+      return loaded;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function renderPresets() {
+    $("presets").innerHTML = Object.keys(PRESETS)
+      .map((name) => `<button data-preset="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("");
+  }
+
+  function renderMolecules() {
+    $("molecules").innerHTML = state.molecules.map((m) => `
+      <div class="row molecule" data-id="${m.id}">
+        <span class="swatch" style="background:${color(m)}"></span>
+        <input data-field="name" value="${escapeHtml(m.name)}" maxlength="12" aria-label="Имя молекулы">
+        <input data-field="value" type="number" min="0" max="100" step="1" value="${m.value}" aria-label="Стартовое значение">
+        <input data-field="slider" type="range" min="0" max="100" step="1" value="${m.value}" aria-label="Стартовое значение">
+        <button class="remove" data-action="remove" title="Удалить" aria-label="Удалить молекулу">×</button>
+      </div>`).join("");
+    $("add-molecule").disabled = state.molecules.length >= MAX_MOLECULES;
+  }
+
+  function options(selected, allowNone) {
+    const none = allowNone ? `<option value=""${selected === NONE ? " selected" : ""}>—</option>` : "";
+    return none + state.molecules.map((m) =>
+      `<option value="${m.id}"${m.id === selected ? " selected" : ""}>${escapeHtml(m.name)}</option>`).join("");
+  }
+
+  function renderGenes() {
+    $("genes").innerHTML = state.genes.map((gene, i) => `
+      <div class="row gene" data-index="${i}">
+        <select data-field="target" aria-label="Таргет">${options(gene.target, false)}</select>
+        <select data-field="promoter" aria-label="Промоутер">${options(gene.promoter, true)}</select>
+        <select data-field="inhibitor" aria-label="Ингибитор">${options(gene.inhibitor, true)}</select>
+        <button class="remove" data-action="remove" title="Удалить" aria-label="Удалить ген">×</button>
+      </div>`).join("");
+    $("add-gene").disabled = state.molecules.length === 0;
+  }
+
+  function run() {
+    const index = new Map(state.molecules.map((m, i) => [m.id, i]));
+    const at = (id) => (index.has(id) ? index.get(id) : null);
+    const genes = state.genes
+      .map((gene) => ({ target: at(gene.target), promoter: at(gene.promoter), inhibitor: at(gene.inhibitor) }))
+      .filter((gene) => gene.target !== null);
+    const steps = Math.min(100000, Math.max(1, Math.round(Number(state.steps)) || 1));
+    const dt = Number(state.dt) || 0;
+    series = SoupEngine.simulate(state.molecules.map((m) => Number(m.value) || 0), genes, steps, dt);
+    save();
+    draw();
+    renderTable();
+  }
+
+  // ---- chart ----
+
+  const MARGIN = { top: 12, right: 64, bottom: 28, left: 34 };
+  let geometry = null;
+
+  function niceTicks(max, count) {
+    const raw = max / count;
+    const power = Math.pow(10, Math.floor(Math.log10(raw)));
+    const unit = [1, 2, 5, 10].find((u) => u * power >= raw) * power;
+    const ticks = [];
+    for (let t = 0; t <= max; t += unit) ticks.push(t);
+    return ticks;
+  }
+
+  function draw() {
+    const svg = $("plot");
+    const width = svg.clientWidth, height = svg.clientHeight;
+    const steps = series.length ? series[0].length - 1 : 1;
+    const plotWidth = Math.max(10, width - MARGIN.left - MARGIN.right);
+    const plotHeight = height - MARGIN.top - MARGIN.bottom;
+    const x = (t) => MARGIN.left + (t / steps) * plotWidth;
+    const y = (v) => MARGIN.top + (1 - v / 100) * plotHeight;
+    geometry = { x, y, steps, plotWidth, width };
+
+    let html = '<g class="axis">';
+    for (const v of [0, 25, 50, 75, 100]) {
+      html += `<line class="gridline" x1="${MARGIN.left}" x2="${MARGIN.left + plotWidth}" y1="${y(v)}" y2="${y(v)}"/>`;
+      html += `<text x="${MARGIN.left - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    }
+    for (const t of niceTicks(steps, Math.max(2, Math.floor(plotWidth / 90)))) {
+      html += `<text x="${x(t)}" y="${height - 8}" text-anchor="middle">${t}</text>`;
+    }
+    html += "</g>";
+
+    // At most about two points per pixel are drawn.
+    const stride = Math.max(1, Math.ceil(steps / (plotWidth * 2)));
+    state.molecules.forEach((m, i) => {
+      const points = [];
+      for (let t = 0; t <= steps; t += stride) points.push(`${x(t).toFixed(1)},${y(series[i][t]).toFixed(1)}`);
+      if (steps % stride) points.push(`${x(steps).toFixed(1)},${y(series[i][steps]).toFixed(1)}`);
+      html += `<polyline class="series" stroke="${color(m)}" points="${points.join(" ")}"/>`;
+    });
+
+    // Name each line at its right end when there are few enough to read.
+    if (state.molecules.length <= 4) {
+      const labels = state.molecules
+        .map((m, i) => ({ name: m.name, y: y(series[i][steps]) }))
+        .sort((a, b) => a.y - b.y);
+      for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 14);
+      const overflow = labels.length ? labels[labels.length - 1].y - (MARGIN.top + plotHeight) : 0;
+      for (const label of labels) {
+        const ly = label.y - Math.max(0, overflow);
+        html += `<text class="end-label" x="${MARGIN.left + plotWidth + 8}" y="${ly + 4}">${escapeHtml(label.name)}</text>`;
+      }
+    }
+
+    html += '<g id="hover"></g>';
+    svg.innerHTML = html;
+
+    $("legend").innerHTML = state.molecules
+      .map((m) => `<span><i class="swatch" style="background:${color(m)}"></i>${escapeHtml(m.name)}</span>`).join("");
+    $("tooltip").style.display = "none";
+  }
+
+  function hover(event) {
+    if (!geometry || !state.molecules.length) return;
+    const svg = $("plot");
+    const bounds = svg.getBoundingClientRect();
+    const fraction = (event.clientX - bounds.left - MARGIN.left) / geometry.plotWidth;
+    const t = Math.min(geometry.steps, Math.max(0, Math.round(fraction * geometry.steps)));
+    const px = geometry.x(t);
+
+    let marks = `<line class="crosshair" x1="${px}" x2="${px}" y1="${MARGIN.top}" y2="${geometry.y(0)}"/>`;
+    state.molecules.forEach((m, i) => {
+      marks += `<circle class="dot" cx="${px}" cy="${geometry.y(series[i][t])}" r="4.5" fill="${color(m)}"/>`;
+    });
+    svg.querySelector("#hover").innerHTML = marks;
+
+    const tooltip = $("tooltip");
+    tooltip.innerHTML = `<div class="title">Шаг ${t}</div>` + state.molecules.map((m, i) =>
+      `<div class="line"><i class="swatch" style="background:${color(m)}"></i>${escapeHtml(m.name)}` +
+      `<span class="value">${format(series[i][t])}</span></div>`).join("");
+    tooltip.style.display = "block";
+    const left = px + 14 + tooltip.offsetWidth > geometry.width ? px - 14 - tooltip.offsetWidth : px + 14;
+    tooltip.style.left = `${Math.max(0, left)}px`;
+  }
+
+  function unhover() {
+    const group = $("plot").querySelector("#hover");
+    if (group) group.innerHTML = "";
+    $("tooltip").style.display = "none";
+  }
+
+  function renderTable() {
+    const steps = series.length ? series[0].length - 1 : 0;
+    const stride = Math.max(1, Math.ceil(steps / 40));
+    const rows = [];
+    for (let t = 0; t <= steps; t += stride) rows.push(t);
+    if (rows[rows.length - 1] !== steps) rows.push(steps);
+    $("table").innerHTML = "<table><thead><tr><th>Шаг</th>" +
+      state.molecules.map((m) => `<th>${escapeHtml(m.name)}</th>`).join("") + "</tr></thead><tbody>" +
+      rows.map((t) => `<tr><td>${t}</td>` + series.map((s) => `<td>${format(s[t])}</td>`).join("") + "</tr>").join("") +
+      "</tbody></table>";
+  }
+
+  // ---- events ----
+
+  function renderAll() {
+    renderMolecules();
+    renderGenes();
+    $("steps").value = state.steps;
+    $("dt").value = state.dt;
+    run();
+  }
+
+  $("presets").addEventListener("click", (event) => {
+    const name = event.target.dataset.preset;
+    if (!name) return;
+    state = fromPreset(PRESETS[name]);
+    renderAll();
+  });
+
+  $("molecules").addEventListener("input", (event) => {
+    const row = event.target.closest(".row");
+    const molecule = state.molecules.find((m) => m.id === Number(row.dataset.id));
+    const field = event.target.dataset.field;
+    if (field === "name") {
+      molecule.name = event.target.value;
+      renderGenes();
+    } else {
+      molecule.value = Math.min(100, Math.max(0, Number(event.target.value) || 0));
+      const other = row.querySelector(`[data-field="${field === "value" ? "slider" : "value"}"]`);
+      other.value = molecule.value;
+    }
+    run();
+  });
+
+  $("molecules").addEventListener("click", (event) => {
+    if (event.target.dataset.action !== "remove") return;
+    const id = Number(event.target.closest(".row").dataset.id);
+    state.molecules = state.molecules.filter((m) => m.id !== id);
+    state.genes = state.genes.filter((gene) => gene.target !== id);
+    for (const gene of state.genes) {
+      if (gene.promoter === id) gene.promoter = NONE;
+      if (gene.inhibitor === id) gene.inhibitor = NONE;
+    }
+    renderAll();
+  });
+
+  $("add-molecule").addEventListener("click", () => {
+    const names = new Set(state.molecules.map((m) => m.name));
+    const name = "ABCDEFGHIJKLMNOP".split("").find((letter) => !names.has(letter)) || "X";
+    state.molecules.push({ id: nextId++, name, value: 0, slot: freeSlot() });
+    renderAll();
+  });
+
+  $("genes").addEventListener("change", (event) => {
+    const gene = state.genes[Number(event.target.closest(".row").dataset.index)];
+    gene[event.target.dataset.field] = event.target.value === NONE ? NONE : Number(event.target.value);
+    run();
+  });
+
+  $("genes").addEventListener("click", (event) => {
+    if (event.target.dataset.action !== "remove") return;
+    state.genes.splice(Number(event.target.closest(".row").dataset.index), 1);
+    renderGenes();
+    run();
+  });
+
+  $("add-gene").addEventListener("click", () => {
+    state.genes.push({ target: state.molecules[0].id, promoter: NONE, inhibitor: NONE });
+    renderGenes();
+    run();
+  });
+
+  $("steps").addEventListener("input", (event) => { state.steps = event.target.value; run(); });
+  $("dt").addEventListener("input", (event) => { state.dt = event.target.value; run(); });
+
+  $("plot").addEventListener("pointermove", hover);
+  $("plot").addEventListener("pointerleave", unhover);
+  new ResizeObserver(() => { if (state) draw(); }).observe($("chart"));
+
+  renderPresets();
+  state = load() || fromPreset(PRESETS["Осциллятор"]);
+  renderAll();
+})();
+</script>
+</body>
+</html>
